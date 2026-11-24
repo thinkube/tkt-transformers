@@ -209,10 +209,6 @@ if TASK == "text-to-speech":
         return Response(buf.getvalue(), media_type="audio/wav")
 
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
 if TASK == "heads":
     # One request at a time: a part's engine switches the adapters of the base it shares
     heads_lock = threading.Lock()
@@ -226,3 +222,7 @@ if TASK == "heads":
                 return model.answer(body)
         except PartError as e:
             raise HTTPException(400, str(e))
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
