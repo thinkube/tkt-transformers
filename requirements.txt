@@ -6,3 +6,5 @@ uvicorn==0.54.0
 python-multipart==0.0.32
 soundfile==0.14.0
 httpx==0.28.1
+# The heads task: trained parts on a base model, from Meep²'s serving package at a commit
+meepserve @ https://github.com/thinkube/meepsquared/archive/e0e14ec9191e5f37fe78c11329e8903a2f889420.tar.gz#subdirectory=serve
