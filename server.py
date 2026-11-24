@@ -11,11 +11,6 @@ the port opens.
     automatic-speech-recognition  POST /v1/audio/transcriptions  transformers
     text-to-image                 POST /v1/images/generations    diffusers
     text-to-speech                POST /v1/audio/speech          transformers
-    heads                         POST /v1/heads                 meepserve
-
-A model of the task heads is a trained part on a base model (a tagger, a
-choice head): its folder's meepserve.json names its kind and its base, whose
-own MLflow mirror is loaded too; the request is the part's kind's.
 
 Every pod also answers GET /v1/models and GET /health.
 """
@@ -24,7 +19,6 @@ import base64
 import io
 import os
 import sys
-import threading
 import time
 from contextlib import asynccontextmanager
 
@@ -36,7 +30,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel
 
 MLFLOW_URL = "http://mlflow.mlflow.svc.cluster.local:5000"
-TASKS = ("automatic-speech-recognition", "text-to-image", "text-to-speech", "heads")
+TASKS = ("automatic-speech-recognition", "text-to-image", "text-to-speech")
 
 
 def required(name: str, why: str) -> str:
@@ -52,8 +46,8 @@ if TASK not in TASKS:
     sys.exit(f"{MODEL_ID} has the task '{TASK}', which this server does not serve; it serves {', '.join(TASKS)}")
 
 
-def model_dir(model_id: str) -> str:
-    """The folder of the latest MLflow version of the model `model_id`."""
+def model_dir() -> str:
+    """The folder of the latest MLflow version of MODEL_ID."""
     names = ("MLFLOW_KEYCLOAK_TOKEN_URL", "MLFLOW_KEYCLOAK_CLIENT_ID", "MLFLOW_CLIENT_SECRET",
              "MLFLOW_AUTH_USERNAME", "MLFLOW_AUTH_PASSWORD")
     env = {n: required(n, "the component's MLflow credentials Secret provides it") for n in names}
@@ -66,13 +60,13 @@ def model_dir(model_id: str) -> str:
         sys.exit(f"Keycloak refused the MLflow token: HTTP {resp.status_code}: {resp.text}")
     headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
-    registered = model_id.replace("/", "-")
+    registered = MODEL_ID.replace("/", "-")
     resp = httpx.get(f"{MLFLOW_URL}/api/2.0/mlflow/model-versions/search",
                      params={"filter": f"name='{registered}'"}, headers=headers, timeout=30)
     resp.raise_for_status()
     versions = resp.json().get("model_versions", [])
     if not versions:
-        sys.exit(f"{model_id} is not registered in MLflow as {registered}; mirror it first")
+        sys.exit(f"{MODEL_ID} is not registered in MLflow as {registered}; mirror it first")
     run_id = max(versions, key=lambda v: int(v["version"]))["run_id"]
     resp = httpx.get(f"{MLFLOW_URL}/api/2.0/mlflow/runs/get", params={"run_id": run_id},
                      headers=headers, timeout=30)
@@ -84,11 +78,6 @@ def model_dir(model_id: str) -> str:
 def load(path: str):
     if not torch.cuda.is_available():
         sys.exit("No CUDA device is visible to this pod")
-    if TASK == "heads":
-        # The part's kind reads its files; its base is the model its contract names, from that model's mirror
-        import meepserve
-        contract = meepserve.read_contract(path)
-        return meepserve.load(path, model_dir(contract["base"]), device="cuda")
     dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     if TASK == "text-to-image":
         # The pipeline class is the one the model's model_index.json names.
@@ -104,7 +93,7 @@ model = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global model
-    path = model_dir(MODEL_ID)
+    path = model_dir()
     print(f"Loading {MODEL_ID} ({TASK}) from {path}", flush=True)
     start = time.time()
     model = load(path)
@@ -211,18 +200,3 @@ if TASK == "text-to-speech":
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
-if TASK == "heads":
-    # One request at a time: a part's engine switches the adapters of the base it shares
-    heads_lock = threading.Lock()
-
-    @app.post("/v1/heads")
-    def heads(body: dict):
-        from meepserve import PartError
-        check_model(body.get("model", ""))
-        try:
-            with heads_lock:
-                return model.answer(body)
-        except PartError as e:
-            raise HTTPException(400, str(e))

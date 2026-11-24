@@ -1,8 +1,7 @@
 # tkt-transformers
 
 A server for Hugging Face models that are not language models, behind the
-LLM Gateway: speech to text, text to image, text to speech, and trained
-parts on a base model (taggers). It is the
+LLM Gateway: speech to text, text to image and text to speech. It is the
 `transformers` optional component of Thinkube.
 
 ## What it does
@@ -16,7 +15,6 @@ model's catalog task (`TASK`):
 | `automatic-speech-recognition` | `POST /v1/audio/transcriptions` | transformers pipeline |
 | `text-to-image` | `POST /v1/images/generations` | diffusers, the pipeline the model's `model_index.json` names |
 | `text-to-speech` | `POST /v1/audio/speech` | transformers pipeline |
-| `heads` | `POST /v1/heads` | meepserve: a trained part (a tagger, a choice head) on its base model |
 
 Every pod also answers `GET /v1/models` and `GET /health`. A model with
 another task stops the pod with an error that names the tasks served.
@@ -31,11 +29,6 @@ another task stops the pod with an error that names the tasks served.
 - **Text to image** takes `prompt`, `n` and `size` (`WIDTHxHEIGHT`), and
   `num_inference_steps` and `guidance_scale` beyond the OpenAI fields. The
   images come back as base64 PNG (`b64_json`); no image files are kept.
-- **Heads** serves a trained part on a base model: the model's folder has a
-  `meepserve.json` naming the part's kind and its base, and the base is
-  loaded from its own MLflow mirror. The body names the model, and the rest
-  of it is the part's kind's request; a request the part cannot answer gets
-  HTTP 400 with the reason. Requests are answered one at a time.
 - **Text to speech** takes `input` and answers with a WAV file. The pipeline
   speaks with the model's own voice: `voice` is `default` or left out.
 
